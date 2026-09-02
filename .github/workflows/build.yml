@@ -1,0 +1,87 @@
+name: Build Hutch Unthrottle (Windows)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      byedpi_ref:
+        description: "hufrea/byedpi git ref (tag/branch/commit) to build"
+        required: false
+        default: "main"
+
+jobs:
+  build-engine:
+    name: Cross-compile ciadpi.exe (ByeDPI engine)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ByeDPI source
+        uses: actions/checkout@v4
+        with:
+          repository: hufrea/byedpi
+          ref: ${{ github.event.inputs.byedpi_ref || 'main' }}
+          path: byedpi
+
+      - name: Install MinGW cross-compiler
+        run: sudo apt-get update && sudo apt-get install -y mingw-w64
+
+      - name: Build Windows binary
+        working-directory: byedpi
+        run: make windows CC=x86_64-w64-mingw32-gcc
+
+      - name: Upload ciadpi.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ciadpi-engine
+          path: byedpi/ciadpi.exe
+
+  build-gui:
+    name: Build GUI executable
+    needs: build-engine
+    runs-on: windows-latest
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+
+      - name: Download engine artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ciadpi-engine
+          path: dist-tmp
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools
+        run: pip install pyinstaller
+
+      - name: Build GUI executable with PyInstaller
+        run: |
+          pyinstaller --onefile --windowed --name HutchUnthrottle `
+            --add-binary "dist-tmp\ciadpi.exe;." `
+            app\dpi_bypass_gui.py
+
+      - name: Assemble release folder
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          Copy-Item dist\HutchUnthrottle.exe release\
+          Copy-Item dist-tmp\ciadpi.exe release\
+          Copy-Item README.md release\ -ErrorAction SilentlyContinue
+
+      - name: Zip release
+        run: Compress-Archive -Path release\* -DestinationPath HutchUnthrottle-windows-x64.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HutchUnthrottle-windows-x64
+          path: HutchUnthrottle-windows-x64.zip
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: HutchUnthrottle-windows-x64.zip
