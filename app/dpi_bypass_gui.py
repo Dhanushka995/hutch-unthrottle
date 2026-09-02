@@ -19,13 +19,12 @@ APP_TITLE = "Hutch Unthrottle"
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 1080
 
-# TRY #1: fake-packet + TTL based evasion
+# TRY #2: fake-packet method, default TTL (safer than a manually-lowered TTL)
 BYEDPI_ARGS = [
     "-i", PROXY_HOST,
     "-p", str(PROXY_PORT),
     "--disorder", "1",
     "--fake", "-1",
-    "--ttl", "6",
 ]
 
 INTERNET_SETTINGS_PATH = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
