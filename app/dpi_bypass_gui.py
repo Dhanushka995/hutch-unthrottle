@@ -4,23 +4,6 @@ Hutch Unthrottle - local DPI-bypass proxy GUI
 Wraps the open-source ByeDPI (ciadpi.exe) engine
 (https://github.com/hufrea/byedpi) with a simple Connect/Disconnect
 GUI for Windows.
-
-What this does:
-  - Starts a local SOCKS5 proxy (127.0.0.1:1080) that fragments /
-    reorders the first TLS ClientHello packet so that ISP-side DPI
-    (Deep Packet Inspection) throttling based on SNI/domain name
-    can no longer easily recognise the site you're connecting to.
-  - Points Windows' system proxy setting at that local proxy while
-    "Connected", and removes it when "Disconnected".
-  - Your public IP never changes - this is NOT a VPN. Only the
-    shape of the first few packets of each connection is altered.
-
-What this does NOT do:
-  - It is not guaranteed to work on every site, and ISPs can change
-    their detection methods at any time, breaking this.
-  - It only reroutes apps that honour the Windows/WinINet system
-    proxy setting (most browsers). Apps with their own network stack
-    (some games, some Windows Store apps) may ignore it.
 """
 
 import ctypes
@@ -36,17 +19,13 @@ APP_TITLE = "Hutch Unthrottle"
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 1080
 
-# Default args taken from ByeDPI's own recommended Windows profile
-# (dist/windows/byedpi.bat in the upstream project). These are a
-# reasonable general-purpose starting point for Windows.
+# TRY #1: fake-packet + TTL based evasion
 BYEDPI_ARGS = [
     "-i", PROXY_HOST,
     "-p", str(PROXY_PORT),
-    "--split", "1",
-    "--disorder", "3+s",
-    "--mod-http=h,d",
-    "--auto=torst",
-    "--tlsrec", "1+s",
+    "--disorder", "1",
+    "--fake", "-1",
+    "--ttl", "6",
 ]
 
 INTERNET_SETTINGS_PATH = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
@@ -55,12 +34,10 @@ INTERNET_OPTION_REFRESH = 37
 
 
 def resource_path(filename: str) -> str:
-    """Find a bundled file whether running from source or a PyInstaller exe."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     candidate = os.path.join(base, filename)
     if os.path.exists(candidate):
         return candidate
-    # also check next to the actual exe/script (for side-by-side ciadpi.exe)
     alt = os.path.join(os.path.dirname(sys.executable if getattr(sys, "frozen", False) else __file__), filename)
     return alt
 
@@ -75,7 +52,6 @@ def set_system_proxy(enable: bool, host: str = PROXY_HOST, port: int = PROXY_POR
     with winreg.OpenKey(winreg.HKEY_CURRENT_USER, INTERNET_SETTINGS_PATH, 0, winreg.KEY_SET_VALUE) as key:
         winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 1 if enable else 0)
         if enable:
-            # "socks=" prefix routes ALL protocols (http/https/ftp) through the SOCKS5 proxy
             winreg.SetValueEx(key, "ProxyServer", 0, winreg.REG_SZ, f"socks={host}:{port}")
             winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, "<local>")
     notify_windows_proxy_changed()
