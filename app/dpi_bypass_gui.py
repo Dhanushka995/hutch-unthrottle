@@ -4,6 +4,23 @@ Hutch Unthrottle - local DPI-bypass proxy GUI
 Wraps the open-source ByeDPI (ciadpi.exe) engine
 (https://github.com/hufrea/byedpi) with a simple Connect/Disconnect
 GUI for Windows.
+
+What this does:
+  - Starts a local SOCKS5 proxy (127.0.0.1:1080) that fragments /
+    reorders the first TLS ClientHello packet so that ISP-side DPI
+    (Deep Packet Inspection) throttling based on SNI/domain name
+    can no longer easily recognise the site you're connecting to.
+  - Points Windows' system proxy setting at that local proxy while
+    "Connected", and removes it when "Disconnected".
+  - Your public IP never changes - this is NOT a VPN. Only the
+    shape of the first few packets of each connection is altered.
+
+What this does NOT do:
+  - It is not guaranteed to work on every site, and ISPs can change
+    their detection methods at any time, breaking this.
+  - It only reroutes apps that honour the Windows/WinINet system
+    proxy setting (most browsers). Apps with their own network stack
+    (some games, some Windows Store apps) may ignore it.
 """
 
 import ctypes
@@ -19,15 +36,19 @@ APP_TITLE = "Hutch Unthrottle"
 PROXY_HOST = "127.0.0.1"
 PROXY_PORT = 1080
 
-# TRY #0: ByeDPI's own recommended default Windows profile
+# TRY #3: OOB-based desync, no --fake at all.
+# --fake needs --md5sig to reliably keep the fake packet from reaching
+# the real server, and --md5sig is Linux-only — on Windows only --ttl
+# is available to do that job, which is why a wrong TTL broke the
+# connection outright in the previous attempts. --oob sidesteps this
+# entirely: it injects an urgent-pointer byte that many DPI engines
+# mis-parse, without needing any packet to be selectively dropped.
 BYEDPI_ARGS = [
     "-i", PROXY_HOST,
     "-p", str(PROXY_PORT),
-    "--split", "1",
-    "--disorder", "3+s",
+    "--disorder", "1",
+    "--oob", "25+s",
     "--mod-http=h,d",
-    "--auto=torst",
-    "--tlsrec", "1+s",
 ]
 
 INTERNET_SETTINGS_PATH = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
@@ -36,6 +57,7 @@ INTERNET_OPTION_REFRESH = 37
 
 
 def resource_path(filename: str) -> str:
+    """Find a bundled file whether running from source or a PyInstaller exe."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     candidate = os.path.join(base, filename)
     if os.path.exists(candidate):
